@@ -1,0 +1,70 @@
+src
+├── config
+│   ├── api.config.ts
+│   ├── auth.config.ts
+│   ├── email.config.ts
+│   └── index.ts
+├── domain
+│   ├── entities
+│   │   ├── role.interface.ts
+│   │   └── user.interface.ts
+│   ├── enums
+│   │   └── role.enum.ts
+│   └── index.ts
+├── infrastructure
+│   ├── database
+│   │   ├── database.provider.ts
+│   │   └── schemas
+│   │       ├── token
+│   │       │   └── token.schema.ts
+│   │       └── user
+│   │           ├── role.schema.ts
+│   │           └── user.schema.ts
+│   ├── index.ts
+│   ├── repositories
+│   │   ├── role
+│   │   │   └── role.repository.ts
+│   │   ├── token
+│   │   │   └── token.repository.ts
+│   │   └── user
+│   │       └── user.repository.ts
+│   ├── services
+│   │   ├── auth
+│   │   │   └── auth.service.ts
+│   │   ├── mail
+│   │   │   └── mail.service.ts
+│   │   ├── token
+│   │   │   └── token.service.ts
+│   │   └── user
+│   │       └── user.service.ts
+│   └── types
+│       └── express.d.ts
+├── main.ts
+├── presentation
+│   ├── controllers
+│   │   ├── auth.controller.ts
+│   │   └── user.controller.ts
+│   ├── index.ts
+│   ├── middleware
+│   │   ├── async.middleware.ts
+│   │   ├── auth.middleware.ts
+│   │   ├── globalError.middleware.ts
+│   │   ├── role.middleware.ts
+│   │   └── validate.middleware.ts
+│   ├── routes
+│   │   ├── api.routes.ts
+│   │   ├── auth.routes.ts
+│   │   └── user.routes.ts
+│   ├── utils
+│   └── validators
+│       └── auth.validation.ts
+├── useCases
+│   ├── index.ts
+│   └── user
+│       └── dto
+│           ├── authUser.dto.ts
+│           └── user.dto.ts
+└── utils
+    ├── index.ts
+    ├── project-tree.txt
+    └── treeGen.utils.ts
