@@ -1,2 +1,2 @@
-export { AuthUserDto } from "./user/dto/authUser.dto";
-export { UserDto } from "./user/dto/user.dto.ts";
+export { AuthUserDto } from "./dto/user/authUser.dto.ts";
+export { UserDto } from "./dto/user/user.dto.ts";

@@ -1,5 +1,8 @@
 # Kabanka-Backend
 
+FORK proJWT проекта. Данный проект является еще и примером то как можно использовать
+proJWT внутри своего проекта
+
 **Кабанка** на стеке
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)

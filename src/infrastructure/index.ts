@@ -7,3 +7,5 @@ export { userService } from "./services/user/user.service.ts";
 export { mailService } from "./services/mail/mail.service.ts";
 export { tokenService } from "./services/token/token.service.ts";
 export { authService } from "./services/auth/auth.service.ts";
+export { roomService } from "./services/room/room.service.ts";
+export { roomMembersService } from "./services/room/roomMembers.service.ts";

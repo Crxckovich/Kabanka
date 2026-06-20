@@ -11,12 +11,50 @@ export class AppStatus extends Error {
     Error.captureStackTrace(this, this.constructor);
   }
 
-  static UnauthorizedError() {
-    return new AppStatus(401, "Пользователь не авторизован");
+  // === 4xx ошибки (Client Error) ===
+
+  static BadRequest(message = "Неверный запрос") {
+    return new AppStatus(400, message);
   }
 
-  static UndefinedKey() {
-    return new AppStatus(500, "Не задан ключ");
+  static UnauthorizedError(message = "Пользователь не авторизован") {
+    return new AppStatus(401, message);
+  }
+
+  static Forbidden(message = "Доступ запрещён") {
+    return new AppStatus(403, message);
+  }
+
+  static NotFound(message = "Ресурс не найден") {
+    return new AppStatus(404, message);
+  }
+
+  static Conflict(message = "Конфликт данных") {
+    return new AppStatus(409, message);
+  }
+
+  // === 5xx ошибки (Server Error) ===
+
+  static InternalServerError(message = "Внутренняя ошибка сервера") {
+    return new AppStatus(500, message);
+  }
+
+  // Удобные методы с шаблонами
+
+  static RoomNotFound(roomId: string) {
+    return new AppStatus(404, `Комната с ID: ${roomId} не найдена`);
+  }
+
+  static MemberNotFound() {
+    return new AppStatus(404, "Участник не найден в комнате");
+  }
+
+  static InviteCodeExpired() {
+    return new AppStatus(403, "Код приглашения истёк");
+  }
+
+  static NoPermission() {
+    return new AppStatus(403, "Недостаточно прав для выполнения действия");
   }
 }
 
