@@ -27,7 +27,7 @@ export class RoomMemberRepository {
         });
     }
 
-    async findByRoomAndUser(roomId: string, userId?: number, guestId?: string) {
+    async findByRoomAnyUser(roomId: string, userId?: number, guestId?: string) {
         return db.query.roomMembersSchema.findFirst({
             where: and(
                 eq(roomMembersSchema.roomId, roomId),
@@ -38,9 +38,41 @@ export class RoomMemberRepository {
         }) as Promise<IMemberWithPermissions | undefined>;
     }
 
+    async findByRoomUser(roomId: string, userId: number) {
+        return db.query.roomMembersSchema.findFirst({
+            where: and(
+                eq(roomMembersSchema.roomId, roomId),
+                eq(roomMembersSchema.userId, userId),
+            ),
+            with: { permissions: true }
+        }) as Promise<IMemberWithPermissions | undefined>;
+    }
+
+    async findByRoomGuest(roomId: string, guestId: string) {
+        return db.query.roomMembersSchema.findFirst({
+            where: and(
+                eq(roomMembersSchema.roomId, roomId),
+                eq(roomMembersSchema.guestId, guestId),
+            ),
+            with: { permissions: true }
+        }) as Promise<IMemberWithPermissions | undefined>;
+    }
+
     async findById(memberId: string) {
         return db.query.roomMembersSchema.findFirst({
             where: eq(roomMembersSchema.id, memberId),
+            with: {
+                permissions: true
+            }
+        }) as Promise<IMemberWithPermissions | undefined>;
+    }
+
+    async findRoomAdmin(roomId: string) {
+        return db.query.roomMembersSchema.findFirst({
+            where: and(
+                eq(roomMembersSchema.roomId, roomId),
+                eq(roomMembersSchema.isAdmin, true)
+            ),
             with: {
                 permissions: true
             }
@@ -61,7 +93,7 @@ export class RoomMemberRepository {
             .where(eq(roomMembersSchema.id, memberId));
     }
 
-    async remove(memberId: string) {
+    async removeMember(memberId: string) {
         return db.delete(roomMembersSchema).where(eq(roomMembersSchema.id, memberId));
     }
 
@@ -75,14 +107,6 @@ export class RoomMemberRepository {
         return db.update(roomMemberPermissionsSchema)
             .set(permissions)
             .where(eq(roomMemberPermissionsSchema.memberId, memberId));
-    }
-
-    async leaveRoom(roomId: string, userId?: number, guestId?: string) {
-        return db.delete(roomMembersSchema).where(and(
-            eq(roomMembersSchema.roomId, roomId),
-            userId ? eq(roomMembersSchema.userId, userId) : undefined,
-            guestId ? eq(roomMembersSchema.guestId, guestId) : undefined
-        ));
     }
 }
 

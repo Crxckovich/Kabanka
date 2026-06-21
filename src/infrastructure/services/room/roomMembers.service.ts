@@ -18,35 +18,53 @@ export class RoomMembersService {
 
     async removeMember(
         roomId: string,
-        userId?: number,
-        guestId?: string
+        memberId: string,
+        currentUserId?: number,     // для HTTP (авторизованный)
+        currentGuestId?: string     // для WebSocket / гостей
     ): Promise<void> {
-        if (!roomId) {
-            throw new AppStatus(400, 'ID комнаты обязателен');
+        const room = await roomRepository.findById(roomId);
+
+        if (!room) {
+            throw new AppStatus(404, `Комната с ID: ${roomId} не найдена`)
         }
 
-        const member = await roomMemberRepository.findByRoomAndUser(
-            roomId,
-            userId ? userId : undefined,
-            guestId
-        );
-
-        if (!member) {
-            throw new AppStatus(404, 'Участник не найден в комнате');
+        const targetMember = await roomMemberRepository.findById(memberId);
+        if (!targetMember || targetMember.roomId !== roomId) {
+            throw AppStatus.NotFound('Участник не найден в комнате');
         }
 
-        // Запрещаем удалять создателя комнаты
-        if (member.isAdmin) {
-            throw new AppStatus(403, 'Нельзя удалить создателя комнаты');
+        // Получаем текущего админа комнаты
+        const roomAdmin = await roomMemberRepository.findRoomAdmin(roomId);
+        if (!roomAdmin) {
+            throw AppStatus.InternalServerError('Админ комнаты не найден');
         }
 
-        await roomMemberRepository.remove(member.id);
+        // Проверяем, является ли текущий пользователь/гость админом
+        const isCurrentUserAdmin =
+            (currentUserId && roomAdmin.userId === currentUserId) ||
+            (currentGuestId && roomAdmin.guestId === currentGuestId) ||
+            roomAdmin.id === memberId; // если пытается себя кикнуть — запрещаем ниже
+
+        if (!isCurrentUserAdmin) {
+            throw AppStatus.Forbidden('Только администратор комнаты может исключать участников');
+        }
+
+        // Запреты
+        if (targetMember.isAdmin) {
+            throw AppStatus.Forbidden('Нельзя исключить администратора (создателя) комнаты');
+        }
+
+        if (targetMember.id === roomAdmin.id) {
+            throw AppStatus.Forbidden('Нельзя исключить самого себя');
+        }
+
+        await roomMemberRepository.removeMember(targetMember.id);
     }
 
     async leave(roomId: string, userId?: number, guestId?: string) {
-        const member = await roomMemberRepository.findByRoomAndUser(
+        const member = await roomMemberRepository.findByRoomAnyUser(
             roomId,
-            userId ? userId : undefined,
+            userId,
             guestId
         );
 
@@ -66,7 +84,7 @@ export class RoomMembersService {
 
         // Если Обычный гость, то полностью удаляем из комнаты
         if (isGuest) {
-            await roomMemberRepository.remove(member.id);
+            await roomMemberRepository.removeMember(member.id);
             return;
         }
 
@@ -84,7 +102,6 @@ export class RoomMembersService {
             canDeleteTask: boolean;
             canManageUsers: boolean;
         }>,
-        currentUserId?: number              // ID Админа
     ): Promise<RoomMemberWithPermissionsDto> {
         const targetMember = await roomMemberRepository.findById(memberId);
 
@@ -92,17 +109,14 @@ export class RoomMembersService {
             throw new AppStatus(404, 'Участник не найден в комнате');
         }
 
-        const currentMember = await roomMemberRepository.findByRoomAndUser(
-            roomId,
-            currentUserId ? currentUserId : undefined
-        );
+        const roomAdmin = await roomMemberRepository.findRoomAdmin(roomId);
 
-        if (!currentMember?.isAdmin) {
-            throw new AppStatus(403, 'Только администратор комнаты может изменять права');
+        if (!roomAdmin) {
+            throw new AppStatus(403, 'Админ не найден');
         }
 
         // Запрещаем снимать все права у самого себя (админа)
-        if (targetMember.id === currentMember.id) {
+        if (targetMember.id === roomAdmin.id) {
             throw new AppStatus(403, 'Нельзя изменить свои собственные права администратора');
         }
 

@@ -14,7 +14,8 @@ roomRouter.patch("/:roomId", authMiddleware, asyncMiddleware(roomController.upda
 roomRouter.delete("/:roomId", authMiddleware, asyncMiddleware(roomController.remove));          // Удалить комнату
 
 // Присоединение
-roomRouter.post("/join", asyncMiddleware(roomController.join));                                 // Присоединиться по invite коду
+roomRouter.post("/join/:invite-code", asyncMiddleware(roomController.joinByCode));                                 // Присоединиться по invite коду
+roomRouter.post("/:roomId/join", asyncMiddleware(roomController.joinById));                                 // Присоединиться по ID
 
 // Участники комнаты
 roomRouter.get("/:roomId/members", authMiddleware, asyncMiddleware(roomController.getMembers));

@@ -5,6 +5,7 @@ import {UserDto} from "@/useCases";
 import {RoomWithRelationsDto} from "@/useCases/dto/room/roomWithRelat.dto.ts";
 import {AppStatus} from "@/presentation/middleware/globalError.middleware.ts";
 import type {IRoom} from "@/domain";
+import { RoomMemberWithPermissionsDto } from "@/useCases/dto/room/roomMemberWithRelat.dto";
 
 export class RoomService {
     async createRoom(isAuth: boolean, roomName: string, userData?: UserDto): Promise<RoomDto> {
@@ -38,7 +39,7 @@ export class RoomService {
         return new RoomDto(createdRoom);
     }
 
-    async removeRoom(roomId: string, userId: number) {
+    async removeRoom(roomId: string, userId?: number) {
         const room = await roomRepository.findById(roomId);
 
         if (!room) {
@@ -52,11 +53,10 @@ export class RoomService {
         await roomRepository.delete(roomId);
     }
 
-    async joinRoom(roomId: string, inviteCode: string, userData?: UserDto){
-
-        if (!roomId) {
-            throw new AppStatus(400, 'Id комнаты обязателен');
-        }
+    async joinRoom(
+        roomId: string,
+        userData?: UserDto
+    ): Promise<RoomMemberWithPermissionsDto> {
 
         const room = await roomRepository.findById(roomId);
 
@@ -64,34 +64,66 @@ export class RoomService {
             throw new AppStatus(404, `Комната с ID: ${roomId} не найдена`)
         }
 
-        if (!room.isPublic && room.inviteCode !== inviteCode) {
-            throw new AppStatus(403, `Неверный код приглашения или комната закрыта`)
+        if (!room.isPublic) {
+            throw AppStatus.Forbidden('Комната закрыта');
         }
 
-        if (room.inviteCodeExpiresAt && room.inviteCodeExpiresAt < new Date()) {
-            throw new AppStatus(403, 'Код приглашения истёк');
+        if (userData) {
+            let member = await roomMemberRepository.findByRoomUser(
+                roomId,
+                userData.id
+            );
+
+            if (member) {
+                await roomMemberRepository.updateOnlineStatus(member.id, true);
+                return member;
+            }
+
+            const memberData = {
+                roomId,
+                userId: userData.id,
+                guestId: null,
+                displayName: userData.name,
+                isAdmin: false,
+                isOnline: true,
+            };
+
+            return new RoomMemberWithPermissionsDto(await roomMemberRepository.create(memberData))
         }
 
-        const member = await roomMemberRepository.findByRoomAndUser(roomId, userData?.id);
-
-        if (member) {
-            await roomMemberRepository.updateOnlineStatus(member.id, true)
-            return member
-        }
-
-        const isGuest = !userData?.id;
-        const guestId = isGuest ? `guest_${crypto.randomUUID().slice(0, 8)}` : null;
+        const guestId = `guest_${crypto.randomUUID().slice(0, 8)}`;
 
         const memberData = {
             roomId,
-            userId: userData ? userData.id : null,
+            userId: null,
             guestId,
-            displayName: userData ? userData.name : 'Гость',
-            isAdmin: true,
+            displayName: 'Гость',
+            isAdmin: false,
             isOnline: true,
         };
 
-        await roomMemberRepository.create(memberData);
+        return new RoomMemberWithPermissionsDto(await roomMemberRepository.create(memberData))
+    }
+
+    async joinRoomByInviteCode(inviteCode: string, user?: UserDto): Promise<RoomMemberWithPermissionsDto> {
+        const room = await roomRepository.findByInviteCode(inviteCode);
+        if (!room) {
+            throw AppStatus.NotFound('Комната с таким кодом не найдена или закрыта');
+        }
+
+        if (!room.isPublic) {
+            throw AppStatus.Forbidden('Комната закрыта');
+        }
+
+        if (room.inviteCode !== inviteCode) {
+            throw AppStatus.Forbidden('Неверный код приглашения');
+        }
+
+        if (room.inviteCodeExpiresAt && room.inviteCodeExpiresAt < new Date()) {
+            throw AppStatus.InviteCodeExpired();
+        }
+
+        return this.joinRoom(room.id, user);
     }
 
     async getRoomById(roomId: string): Promise<RoomWithRelationsDto> {
@@ -131,10 +163,84 @@ export class RoomService {
         });
 
         if (!updatedRoom) {
-            throw new Error('Не удалось обновить комнату');
+            throw new AppStatus(500, 'Не удалось обновить комнату');
         }
 
         return new RoomDto(updatedRoom);
+    }
+
+
+    async togglePublic(roomId: string, currentUserId?: number): Promise<RoomDto> {
+        const room = await roomRepository.findById(roomId);
+
+        if (!room) {
+            throw new AppStatus(404, `Комната с ID: ${roomId} не найдена`)
+        }
+
+        if (room.ownerId !== currentUserId) {
+            throw AppStatus.Forbidden('Только создатель комнаты может изменять публичный доступ');
+        }
+
+        const isNowPublic = !room.isPublic;
+
+        const updateData: Partial<IRoom> = {
+            isPublic: isNowPublic,
+        };
+
+        if (isNowPublic) {
+            updateData.inviteCode = this.generateInviteCode();
+            updateData.inviteCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+        } else {
+            updateData.inviteCode = null;
+            updateData.inviteCodeExpiresAt = null;
+        }
+
+        const updatedRoom = await roomRepository.update(roomId, updateData);
+
+        if (!updatedRoom) {
+            throw AppStatus.InternalServerError('Не удалось обновить статус комнаты');
+        }
+
+        return new RoomDto(updatedRoom);
+    }
+
+    async resetInviteCode(roomId: string, currentUserId?: number): Promise<RoomDto> {
+        const room = await roomRepository.findById(roomId);
+
+        if (!room) {
+            throw new AppStatus(404, `Комната с ID: ${roomId} не найдена`)
+        }
+
+        if (!room.isPublic) {
+            throw AppStatus.BadRequest('Нельзя сгенерировать код для закрытой комнаты');
+        }
+
+        if (room.ownerId !== currentUserId) {
+            throw AppStatus.Forbidden('Только создатель комнаты может обновлять код');
+        }
+
+        const updateData = {
+            inviteCode: this.generateInviteCode(),
+            inviteCodeExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        };
+
+        const updatedRoom = await roomRepository.update(roomId, updateData);
+
+        if (!updatedRoom) {
+            throw AppStatus.InternalServerError('Не удалось обновить комнату');
+        }
+
+        return new RoomDto(updatedRoom);
+    }
+
+    private generateInviteCode(): string {
+        // 8 символов: цифры + заглавные + строчные + _
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';
+        let code = '';
+        for (let i = 0; i < 8; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return code;
     }
 
 }
