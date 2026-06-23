@@ -4,8 +4,10 @@ import { apiRouter, errorMiddleware } from "@/presentation";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import { CLIENT_URL } from "@/config/api.config.ts";
+import { websocketServer } from "./infrastructure/websocket/websocket.server";
 
 const PORT = process.env.PORT || 5000;
+const WS_PORT = 5001; // process.env.WS_PORT ||
 
 const app = express();
 
@@ -24,6 +26,7 @@ app.use(errorMiddleware);
 async function main() {
   try {
     app.listen(PORT, () => console.log(`Сервер запущен на порту http://localhost:${PORT}`));
+    websocketServer.listen(WS_PORT);
   } catch (e) {
     console.log(e);
   }

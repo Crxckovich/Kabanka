@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { userRouter } from "./user.routes.ts";
 import { authRouter } from "./auth.routes.ts";
-import {roomRouter} from "@/presentation/routes/room.routes.ts";
+import { roomRouter } from "@/presentation/routes/room.routes.ts";
 
 export const apiRouter = Router();
 

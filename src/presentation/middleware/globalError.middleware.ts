@@ -39,6 +39,10 @@ export class AppStatus extends Error {
     return new AppStatus(500, message);
   }
 
+  static UndefinedKey() {
+    return new AppStatus(500, "Не задан ключ");
+  }
+
   // Удобные методы с шаблонами
 
   static RoomNotFound(roomId: string) {

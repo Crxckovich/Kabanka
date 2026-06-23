@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["node_modules", "dist", "build"],
+  "ignorePatterns": ["node_modules", "dist", "build", "drizzle"],
   "lineWidth": 125,
   "tabWidth": 2,
   "useTabs": false,

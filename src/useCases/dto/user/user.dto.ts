@@ -1,5 +1,5 @@
-import type {IUser} from "@/domain/entities/user/user.interface.ts";
-import {usersSchema} from "@/infrastructure";
+import type { IUser } from "@/domain/entities/user/user.interface.ts";
+import { usersSchema } from "@/infrastructure";
 
 export class UserDto implements IUser {
   id: number;
