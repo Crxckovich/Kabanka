@@ -14,7 +14,15 @@ export class RoomMemberRepository {
       throw AppStatus.InternalServerError("Не удалось создать участника");
     }
 
-    return this.findById(member.id);
+    await this.createDefaultPermissions(member.id);
+
+    // TODO: Убрать возврат мембера из функции создании
+    const fullMember = await this.findById(member.id);
+    if (!fullMember) {
+      throw AppStatus.InternalServerError('Не удалось загрузить участника');
+    }
+
+    return fullMember;
   }
 
   private async createDefaultPermissions(memberId: string) {
@@ -64,18 +72,18 @@ export class RoomMemberRepository {
     });
   }
 
-  async findById(memberId: string): Promise<IMemberWithPermissions | undefined> {
+  async findRoomAdmin(roomId: string): Promise<IMemberWithPermissions | undefined> {
     return db.query.roomMembersSchema.findFirst({
-      where: eq(roomMembersSchema.id, memberId),
+      where: and(eq(roomMembersSchema.roomId, roomId), eq(roomMembersSchema.isAdmin, true)),
       with: {
         permissions: true,
       },
     });
   }
 
-  async findRoomAdmin(roomId: string): Promise<IMemberWithPermissions | undefined> {
+  async findById(memberId: string): Promise<IMemberWithPermissions | undefined> {
     return db.query.roomMembersSchema.findFirst({
-      where: and(eq(roomMembersSchema.roomId, roomId), eq(roomMembersSchema.isAdmin, true)),
+      where: eq(roomMembersSchema.id, memberId),
       with: {
         permissions: true,
       },

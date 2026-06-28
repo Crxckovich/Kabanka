@@ -28,8 +28,8 @@ export class RoomTasksService {
       throw new AppStatus(404, `Участник с ID: ${memberId} не найден`);
     }
 
-    if (!currentMember.permissions.canCreateStatus && !currentMember.isAdmin) {
-      throw AppStatus.BadRequest("Недостаточно прав для создания статуса");
+    if (!currentMember.isAdmin && !currentMember.permissions.canCreateStatus) {
+      throw AppStatus.Forbidden("Недостаточно прав для создания статуса");
     }
 
     const statusData = {
@@ -68,7 +68,7 @@ export class RoomTasksService {
       throw new AppStatus(404, `Участник с ID: ${memberId} не найден`);
     }
 
-    if (!currentMember.permissions.canDeleteStatus && !currentMember.isAdmin) {
+    if (!currentMember.isAdmin && !currentMember.permissions.canDeleteStatus) {
       throw AppStatus.BadRequest("Недостаточно прав для удаления статуса");
     }
 
@@ -111,7 +111,7 @@ export class RoomTasksService {
       throw new AppStatus(404, `Участник с ID: ${memberId} не найден`);
     }
 
-    if (!currentMember.permissions.canCreateTask && !currentMember.isAdmin) {
+    if (!currentMember.isAdmin && !currentMember.permissions.canCreateTask) {
       throw AppStatus.BadRequest("Недостаточно прав для создания задачи");
     }
 
@@ -154,23 +154,30 @@ export class RoomTasksService {
       throw new AppStatus(404, `Участник с ID: ${memberId} не найден`);
     }
 
-    if (!currentMember.permissions.canDeleteTask && !currentMember.isAdmin) {
+    if (!currentMember.isAdmin && !currentMember.permissions.canDeleteTask) {
       throw AppStatus.BadRequest("Недостаточно прав для удаления задачи");
     }
 
     await taskRepository.delete(taskId);
   }
 
-  async reorderTasks(statusId: string, orderedIds: string[], memberId: string) {
-    await statusRepository.findById(statusId);
+  async move(
+      taskId: string,
+      newStatusId: string,
+      oldStatusId: string,
+  ): Promise<void> {
 
-    const member = await roomMemberRepository.findById(memberId);
-    if (!member?.isAdmin && !member?.permissions.canCreateStatus) {
-      throw AppStatus.Forbidden("Недостаточно прав для изменения порядка статусов");
-    }
-
-    await taskRepository.reorder(statusId, orderedIds);
+    await taskRepository.move(taskId, newStatusId, oldStatusId);
   }
+
+  async reorderTasks(statusId: string, orderedIds: string[]): Promise<void> {
+    await taskRepository.reorderTasks(statusId, orderedIds);
+  }
+
+  async getTaskById(taskId: string) {
+    return taskRepository.findTaskById(taskId);
+  }
+
 }
 
 export const roomTasksService = new RoomTasksService();

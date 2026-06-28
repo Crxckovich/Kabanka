@@ -4,11 +4,11 @@ import roomMemberRepository from "@/infrastructure/repositories/room/roomMember.
 import { UserDto } from "@/useCases";
 import { RoomWithRelationsDto } from "@/useCases/dto/room/roomWithRelat.dto.ts";
 import { AppStatus } from "@/presentation/middleware/globalError.middleware.ts";
-import type { IRoom } from "@/domain";
+import type {IMemberWithPermissions, IRoom} from "@/domain";
 import { RoomMemberWithPermissionsDto } from "@/useCases/dto/room/roomMemberWithRelat.dto";
 
 export class RoomService {
-  async createRoom(isAuth: boolean, roomName: string, userData?: UserDto): Promise<RoomDto> {
+  async createRoom(isAuth: boolean, roomName: string, userData?: UserDto): Promise<{ room: RoomDto; guestId?: string } | { room: RoomDto }>  {
     const isTemporary = !isAuth;
     const ownerId = isAuth && userData ? userData.id : null;
 
@@ -25,10 +25,12 @@ export class RoomService {
 
     const createdRoom = await roomRepository.create(roomData);
 
+    const guestId = `guest_${crypto.randomUUID().slice(0, 8)}`
+
     const memberData = {
       roomId: createdRoom.id,
       userId: ownerId,
-      guestId: isAuth ? null : `guest_${crypto.randomUUID().slice(0, 8)}`,
+      guestId: isAuth ? null : guestId,
       displayName: isAuth && userData ? userData.name : "Создатель", // Первый мембер в комнате всегда админ
       isAdmin: true,
       isOnline: true,
@@ -36,13 +38,28 @@ export class RoomService {
 
     await roomMemberRepository.create(memberData);
 
-    return new RoomDto(createdRoom);
+    if (!isAuth) {
+      return {
+        room: new RoomDto(createdRoom),
+        guestId,
+      }
+    }
+
+    return {
+      room: new RoomDto(createdRoom),
+    };
   }
 
-  async removeRoom(roomId: string, memberId: string) {
+  async removeRoom(roomId: string, memberId?: string, userId?: number) {
     await roomRepository.findById(roomId);
+    let currentMember: IMemberWithPermissions | undefined
 
-    const currentMember = await roomMemberRepository.findById(memberId);
+    if (userId && !memberId) {
+      currentMember = await roomMemberRepository.findByRoomUser(roomId, userId)
+    } else if (memberId && !userId) {
+      currentMember = await roomMemberRepository.findById(memberId)
+    }
+
     if (!currentMember || currentMember.roomId !== roomId) {
       throw AppStatus.NotFound("Текущий участник не найден");
     }
@@ -54,10 +71,23 @@ export class RoomService {
     await roomRepository.delete(roomId);
   }
 
-  async joinRoom(roomId: string, userData?: UserDto): Promise<RoomMemberWithPermissionsDto> {
+  async joinRoom(roomId: string, userData?: UserDto, guestId?: string | null): Promise<RoomMemberWithPermissionsDto> {
     const room = await roomRepository.findById(roomId);
 
-    if (!room.isPublic) {
+    let isRoomOwnerOrAdmin = false;
+
+    if (userData) {
+      isRoomOwnerOrAdmin = room.ownerId === userData.id;
+    } else if (guestId) {
+      const existingGuest = await roomMemberRepository.findByRoomGuest(roomId, guestId);
+      isRoomOwnerOrAdmin = !!existingGuest?.isAdmin;
+    } else {
+      // Если нет userData и guestId — проверяем наличие админа
+      const roomAdmin = await roomMemberRepository.findRoomAdmin(roomId);
+      isRoomOwnerOrAdmin = !!roomAdmin;
+    }
+
+    if (!room.isPublic && !isRoomOwnerOrAdmin) {
       throw AppStatus.Forbidden("Комната закрыта");
     }
 
@@ -66,7 +96,9 @@ export class RoomService {
 
       if (member) {
         await roomMemberRepository.updateOnlineStatus(member.id, true);
-        return member;
+
+        const updatedMember = await roomMemberRepository.findById(member.id);
+        return new RoomMemberWithPermissionsDto(updatedMember!);
       }
 
       const memberData = {
@@ -87,12 +119,21 @@ export class RoomService {
       return new RoomMemberWithPermissionsDto(member);
     }
 
-    const guestId = `guest_${crypto.randomUUID().slice(0, 8)}`;
+    if (guestId) {
+      let member = await roomMemberRepository.findByRoomGuest(roomId, guestId);
+
+      if (member) {
+        await roomMemberRepository.updateOnlineStatus(member.id, true);
+        return new RoomMemberWithPermissionsDto(member);
+      }
+    }
+
+    const newGuestId = `guest_${crypto.randomUUID().slice(0, 8)}`;
 
     const memberData = {
       roomId,
       userId: null,
-      guestId,
+      guestId: newGuestId,
       displayName: "Гость",
       isAdmin: false,
       isOnline: true,
@@ -116,7 +157,13 @@ export class RoomService {
       throw AppStatus.NotFound("Комната с таким кодом не найдена или закрыта");
     }
 
-    if (!room.isPublic) {
+    const isRoomOwner = user && room.ownerId === user.id;
+
+    if (!room.isPublic && !isRoomOwner) {
+      throw AppStatus.Forbidden("Комната закрыта");
+    }
+
+    if (!room.isPublic && !isRoomOwner) {
       throw AppStatus.Forbidden("Комната закрыта");
     }
 
@@ -138,11 +185,9 @@ export class RoomService {
   }
 
   async getUserRooms(userId: number): Promise<RoomDto[]> {
-    if (!userId) {
-      throw new AppStatus(400, "ID пользователя обязателен");
-    }
-
     const rooms = await roomRepository.getUserRooms(userId);
+
+    console.log(rooms);
 
     if (!rooms || rooms.length === 0) {
       return [];
@@ -189,6 +234,7 @@ export class RoomService {
       updateData.inviteCode = this.generateInviteCode();
       updateData.inviteCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
     } else {
+      updateData.isPublic = false;
       updateData.inviteCode = null;
       updateData.inviteCodeExpiresAt = null;
     }
@@ -204,6 +250,9 @@ export class RoomService {
 
   async resetInviteCode(roomId: string, currentUserId?: number): Promise<RoomDto> {
     const room = await roomRepository.findById(roomId);
+    console.log(`
+ ${currentUserId}
+`)
 
     if (!room.isPublic) {
       throw AppStatus.BadRequest("Нельзя сгенерировать код для закрытой комнаты");

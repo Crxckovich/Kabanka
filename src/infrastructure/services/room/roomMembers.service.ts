@@ -2,7 +2,7 @@ import roomMemberRepository from "@/infrastructure/repositories/room/roomMember.
 import { AppStatus } from "@/presentation/middleware/globalError.middleware.ts";
 import roomRepository from "@/infrastructure/repositories/room/room.repository.ts";
 import { RoomMemberWithPermissionsDto } from "@/useCases/dto/room/roomMemberWithRelat.dto.ts";
-import type { IPermissions } from "@/domain/entities/room/roomMember.interface.ts";
+import type {IMemberWithPermissions, IPermissions } from "@/domain/entities/room/roomMember.interface.ts";
 
 // Вынес в другой сервис для того чтобы не заполнять кучей кода основной сервис для работы с комнатами
 export class RoomMembersService {
@@ -48,7 +48,8 @@ export class RoomMembersService {
     await roomMemberRepository.removeMember(targetMember.id);
   }
 
-  async leave(roomId: string, memberId: string) {
+  // Выход, который срабатывает при закрытии страницы (ГОСТИ)
+  async leaveByClosing(roomId: string, memberId: string) {
     const member = await roomMemberRepository.findById(memberId);
 
     if (!member) {
@@ -73,6 +74,30 @@ export class RoomMembersService {
 
     // Зарегистрированного пользователя не удаляем, просто делаем offline
     await roomMemberRepository.updateOnlineStatus(member.id, false);
+  }
+
+  // Выход, который срабатывает при нажатии на кнопку выход из комнаты (АВТОРИЗ. ЮЗЕРЫ)
+  async leaveByButton(roomId: string, memberId?: string, userId?: number) {
+    let member: IMemberWithPermissions | undefined
+
+    if (userId && !memberId) {
+      member = await roomMemberRepository.findByRoomUser(roomId, userId)
+    } else if (memberId && !userId) {
+      member = await roomMemberRepository.findById(memberId);
+    }
+
+    if (!member) {
+      throw new AppStatus(404, "Участник не найден в комнате");
+    }
+
+    // Если юзер это Создатель, то полностью удаляем временную комнату
+    if (member.isAdmin) {
+      // Удаляем всю комнату (каскадное удаление всех участников, статусов и задач)
+      await roomRepository.delete(roomId);
+      return;
+    }
+
+    await roomMemberRepository.removeMember(member.id);
   }
 
   async updateMemberPermissions(

@@ -51,30 +51,59 @@ export class TaskRepository {
     return task;
   }
 
-  async reorder(statusId: string, orderedIds: string[]): Promise<void> {
+  async move(
+      taskId: string,
+      newStatusId: string,
+      oldStatusId: string
+  ): Promise<void> {
+    if (newStatusId === oldStatusId) {
+      throw new AppStatus(400, "Для reorder внутри статуса используйте reorderTasks");
+    }
+
+    await db.transaction(async (tx) => {
+      const [task] = await tx
+          .select({ statusId: tasksSchema.statusId })
+          .from(tasksSchema)
+          .where(eq(tasksSchema.id, taskId))
+          .limit(1);
+
+      if (!task || task.statusId !== oldStatusId) {
+        throw new AppStatus(404, "Задача не найдена или уже перемещена");
+      }
+
+      await tx
+          .update(tasksSchema)
+          .set({
+            statusId: newStatusId,
+            updatedAt: sql`NOW()`
+          })
+          .where(eq(tasksSchema.id, taskId));
+    });
+  }
+
+  async reorderTasks(statusId: string, orderedIds: string[]): Promise<void> {
     if (orderedIds.length === 0) return;
 
     await db.transaction(async (tx) => {
       const existingTasks = await tx
-        .select({ id: tasksSchema.id })
-        .from(tasksSchema)
-        .where(eq(tasksSchema.statusId, statusId));
+          .select({ id: tasksSchema.id })
+          .from(tasksSchema)
+          .where(eq(tasksSchema.statusId, statusId));
 
-      const existingIds = new Set(existingTasks.map((s) => s.id));
+      const existingIds = new Set(existingTasks.map((t) => t.id));
 
       if (orderedIds.length !== existingIds.size || orderedIds.some((id) => !existingIds.has(id))) {
-        throw AppStatus.BadRequest("Некорректный порядок задач");
+        throw new AppStatus(400, "Некорректный порядок задач");
       }
 
       const cases = orderedIds.map((id, index) => `WHEN id = '${id}' THEN ${index}`).join(" ");
 
       await tx.execute(sql`
-                UPDATE ${tasksSchema}
-                SET "order" = CASE ${sql.raw(cases)}
-                ELSE "order"
-                END
-                WHERE ${eq(tasksSchema.statusId, statusId)}
-            `);
+      UPDATE ${tasksSchema}
+      SET "order" = CASE ${sql.raw(cases)} ELSE "order" END,
+          "updated_at" = NOW()
+      WHERE ${eq(tasksSchema.statusId, statusId)}
+    `);
     });
   }
 

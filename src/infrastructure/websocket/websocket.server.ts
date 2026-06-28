@@ -1,14 +1,5 @@
-import { roomWsHandler } from "./handlers/room.handler";
+import {roomWsHandler, type WsData} from "./handlers/room.handler";
 import { UserDto } from "@/useCases";
-
-export type WsData = {
-  token?: string;
-  inviteCode?: string;
-  user?: UserDto;
-  roomId?: string;
-  isGuest?: boolean;
-  guestId?: string | null;
-};
 
 class WebsocketServer {
   listen(port: number) {
@@ -20,11 +11,13 @@ class WebsocketServer {
         if (url.pathname === "/ws/room") {
           const token = url.searchParams.get("token");
           const inviteCode = url.searchParams.get("inviteCode");
+          const guestId = url.searchParams.get("guestId");
 
           const upgradeSuccess = server.upgrade(req, {
             data: {
               token: token || undefined,
               inviteCode: inviteCode || undefined,
+              guestId: guestId || undefined,
             } as WsData,
           });
 

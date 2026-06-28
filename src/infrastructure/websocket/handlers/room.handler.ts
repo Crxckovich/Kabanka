@@ -1,9 +1,10 @@
 import { roomService } from "@/infrastructure/services/room/room.service";
 import type { ServerWebSocket } from "bun";
 import type { RoomMemberWithPermissionsDto } from "@/useCases/dto/room/roomMemberWithRelat.dto";
-import { roomMembersService, userService } from "@/infrastructure";
+import {roomMembersService, userService } from "@/infrastructure";
 import { UserDto } from "@/useCases";
 import { roomTasksService } from "@/infrastructure/services/room/roomTasks.service.ts";
+import {AppStatus} from "@/presentation/middleware/globalError.middleware.ts";
 
 export type WsData = {
   token?: string;
@@ -19,13 +20,27 @@ export class RoomWsHandler {
   private rooms = new Map<string, Set<ServerWebSocket<WsData>>>();
 
   async onConnect(ws: ServerWebSocket<WsData>) {
-    console.log("Успешно подключено");
     ws.send(JSON.stringify({ type: "connected" }));
   }
 
   async onMessage(ws: ServerWebSocket<WsData>, message: string | Buffer) {
     try {
       const data = JSON.parse(message.toString());
+      const {token, roomId} = ws.data
+
+      if (data.type === 'join-room') {
+        if (data.roomId) {
+          await this.joinByRoomId(ws, data.roomId, token);
+        } else if (data.inviteCode) {
+          await this.joinByInviteCode(ws, data.inviteCode, token);
+        }
+        return;
+      }
+
+      if (!roomId) {
+        throw new Error("roomId отсутствует");
+      }
+
       const currentMemberId = ws.data.memberId;
 
       if (!currentMemberId) {
@@ -33,37 +48,44 @@ export class RoomWsHandler {
       }
 
       switch (data.type) {
-        case "join-room": {
-          if (data.roomId) {
-            await this.joinByRoomId(ws, data.roomId, data.token);
-          } else if (data.inviteCode) {
-            await this.joinByInviteCode(ws, data.inviteCode, data.token);
-          }
-          break;
-        }
-
         // === Комната ===
         case "update-room": {
-          const updatedRoom = await roomService.updateRoom(data.roomId, data.payload);
-          this.broadcastToRoom(data.roomId, { type: "room-updated", payload: updatedRoom });
+          const updatedRoom = await roomService.updateRoom(roomId, data.payload);
+          this.broadcastToRoom(roomId, { type: "room-updated", payload: updatedRoom });
           break;
         }
 
         case "delete-room": {
-          await roomService.removeRoom(data.roomId, currentMemberId);
-          this.broadcastToRoom(data.roomId, { type: "room-deleted" });
+
+          if (data.roomId && data.userId) {
+            await roomService.removeRoom(data.roomId, currentMemberId);
+            this.broadcastToRoom(data.roomId, { type: "room-deleted" });
+            break;
+          }
+
+          await roomService.removeRoom(roomId, currentMemberId);
+          this.broadcastToRoom(roomId, { type: "room-deleted" });
           break;
         }
 
         case "toggle-public": {
           const toggledRoom = await roomService.togglePublic(data.roomId, currentMemberId);
-          this.broadcastToRoom(data.roomId, { type: "public-toggled", payload: toggledRoom });
+          this.broadcastToRoom(roomId, { type: "public-toggled", payload: toggledRoom });
           break;
         }
 
         // === Участники ===
         case "leave": {
-          await roomMembersService.leave(data.roomId, currentMemberId);
+          await roomMembersService.leaveByClosing(roomId, currentMemberId);
+          this.broadcastToRoom(roomId, {
+            type: "user-left",
+            payload: { memberId: currentMemberId },
+          });
+          break;
+        }
+
+        case "leave-by-button": {
+          await roomMembersService.leaveByButton(data.roomId, data.userId);
           this.broadcastToRoom(data.roomId, {
             type: "user-left",
             payload: { memberId: currentMemberId },
@@ -72,8 +94,8 @@ export class RoomWsHandler {
         }
 
         case "remove-member": {
-          await roomMembersService.removeMember(data.roomId, data.memberId, currentMemberId);
-          this.broadcastToRoom(data.roomId, {
+          await roomMembersService.removeMember(roomId, data.memberId, currentMemberId);
+          this.broadcastToRoom(roomId, {
             type: "member-removed",
             payload: { memberId: data.memberId },
           });
@@ -81,15 +103,15 @@ export class RoomWsHandler {
         }
 
         case "update-permissions": {
-          await roomMembersService.updateMemberPermissions(
-            data.roomId,
-            data.memberId,
+         const roomMember = await roomMembersService.updateMemberPermissions(
+            roomId,
+            data.payload.memberId,
             currentMemberId,
-            data.permissions
+            data.payload.permissions
           );
-          this.broadcastToRoom(data.roomId, {
+          this.broadcastToRoom(roomId, {
             type: "permissions-updated",
-            payload: { memberId: data.memberId, permissions: data.permissions },
+            payload: { memberId: roomMember.id, permissions: roomMember.permissions },
           });
           break;
         }
@@ -97,33 +119,29 @@ export class RoomWsHandler {
         // === Статусы ===
         case "create-status": {
           const newStatus = await roomTasksService.createStatus(
-            data.roomId,
+            roomId,
             data.name,
             currentMemberId
           );
-          this.broadcastToRoom(data.roomId, { type: "status-created", payload: newStatus });
+          this.broadcastToRoom(roomId, { type: "status-created", payload: newStatus });
+          break;
+        }
+
+        case "delete-status": {
+          await roomTasksService.deleteStatus(data.statusId, currentMemberId);
+          this.broadcastToRoom(roomId, { type: "status-deleted", payload: { statusId: data.statusId }});
           break;
         }
 
         case "update-status": {
           const updatedStatus = await roomTasksService.updateStatus(data.statusId, data.payload);
-          this.broadcastToRoom(data.roomId, { type: "status-updated", payload: updatedStatus });
-          break;
-        }
-
-        // TODO: Права доступа к удалению статуса И задачам (обновление)
-        case "delete-status": {
-          await roomTasksService.deleteStatus(data.statusId, currentMemberId);
-          this.broadcastToRoom(data.roomId, {
-            type: "status-deleted",
-            payload: { statusId: data.statusId },
-          });
+          this.broadcastToRoom(roomId, { type: "status-updated", payload: updatedStatus });
           break;
         }
 
         case "reorder-statuses": {
-          await roomTasksService.reorderStatuses(data.roomId, data.orderedIds, currentMemberId);
-          this.broadcastToRoom(data.roomId, {
+          await roomTasksService.reorderStatuses(roomId, data.orderedIds, currentMemberId);
+          this.broadcastToRoom(roomId, {
             type: "statuses-reordered",
             payload: { orderedIds: data.orderedIds },
           });
@@ -133,39 +151,86 @@ export class RoomWsHandler {
         // === Задачи ===
         case "create-task": {
           const newTask = await roomTasksService.createTask(
-            data.roomId,
-            data.statusId,
-            data.title,
-            data.description,
+            roomId,
+            data.payload.statusId,
+            data.payload.title,
+            data.payload.description,
             currentMemberId
           );
-          this.broadcastToRoom(data.roomId, { type: "task-created", payload: newTask });
+          this.broadcastToRoom(roomId, { type: "task-created", payload: newTask });
           break;
         }
 
         case "update-task": {
           const updatedTask = await roomTasksService.updateTask(data.taskId, data.payload);
-          this.broadcastToRoom(data.roomId, { type: "task-updated", payload: updatedTask });
+          this.broadcastToRoom(roomId, { type: "task-updated", payload: updatedTask });
           break;
         }
 
         case "delete-task": {
           await roomTasksService.removeTask(data.taskId, currentMemberId);
-          this.broadcastToRoom(data.roomId, {
+          this.broadcastToRoom(roomId, {
             type: "task-deleted",
             payload: { taskId: data.taskId },
           });
           break;
         }
 
-        case "reorder-tasks": {
-          await roomTasksService.reorderTasks(data.statusId, data.orderedIds, currentMemberId);
-          this.broadcastToRoom(data.roomId, {
-            type: "tasks-reordered",
-            payload: { statusId: data.statusId, orderedIds: data.orderedIds },
+        case "move-task": {
+          const { taskId, newStatusId, oldStatusId, orderedOld, orderedNew } = data.payload || {};
+
+          if (!taskId || !newStatusId || !oldStatusId) {
+            throw new AppStatus(400, "taskId, newStatusId, oldStatusId обязательны");
+          }
+
+          await roomTasksService.move(taskId, newStatusId, oldStatusId);
+
+          if (orderedOld?.length) {
+            await roomTasksService.reorderTasks(oldStatusId, orderedOld);
+          }
+          if (orderedNew?.length) {
+            await roomTasksService.reorderTasks(newStatusId, orderedNew);
+          }
+
+          const updatedTask = await roomTasksService.getTaskById(taskId);
+
+          this.broadcastToRoom(roomId, {
+            type: "task-moved",
+            payload: {
+              task: updatedTask,
+              oldStatusId,
+              newStatusId,
+              orderedOld,
+              orderedNew
+            }
           });
           break;
         }
+
+        case "reorder-tasks": {
+          const { statusId, orderedIds } = data.payload || {}
+
+          if (!statusId || !orderedIds) {
+            throw new AppStatus(400, "statusId и orderedIds обязательны")
+          }
+
+          await roomTasksService.reorderTasks(statusId, orderedIds)
+
+          this.broadcastToRoom(roomId, {
+            type: "tasks-reordered",
+            payload: { statusId, orderedIds },
+          })
+          break;
+        }
+
+        // case "reorder-tasks": {
+        //   await roomTasksService.reorderTasks(data.statusId, data.orderedIds, currentMemberId);
+        //   this.broadcastToRoom(roomId, {
+        //     type: "tasks-reordered",
+        //     payload: { statusId: data.statusId, orderedIds: data.orderedIds },
+        //   });
+        //   break;
+        // }
 
         default:
           ws.send(JSON.stringify({ type: "error", message: "Unknown action" }));
@@ -186,15 +251,17 @@ export class RoomWsHandler {
    */
   private async joinByRoomId(ws: ServerWebSocket<WsData>, roomId: string, token?: string) {
     let user: UserDto | undefined;
+    const {guestId} = ws.data
+
     if (token) {
       try {
-        user = await userService.getUserFromToken(token);
+        user = await userService.getUserFromToken(`Bearer ${token}`);
       } catch {
         // Если токен невалидный, то продолжаем как гость
       }
     }
 
-    const member = await roomService.joinRoom(roomId, user);
+    const member = await roomService.joinRoom(roomId, user, guestId);
 
     this.setupWsData(ws, roomId, member, user);
 
@@ -263,23 +330,43 @@ export class RoomWsHandler {
 
   onClose(ws: ServerWebSocket<WsData>) {
     const roomId = ws.data.roomId;
-    if (!roomId || !this.rooms.has(roomId)) return;
+    const memberId = ws.data.memberId;
 
-    this.rooms.get(roomId)!.delete(ws);
+    if (!roomId || !memberId) return;
 
-    if (this.rooms.get(roomId)!.size === 0) {
-      this.rooms.delete(roomId);
-    } else {
+    console.log(`User left room ${roomId}, memberId: ${memberId}`);
+
+    try {
+      roomMembersService.leaveByClosing(roomId, memberId);
+
       this.broadcastToRoom(roomId, {
         type: "user-left",
-        payload: { memberId: ws.data.memberId || ws.data.guestId },
+        payload: { memberId },
       });
+    } catch (error) {
+      console.error("Error on user leave:", error);
+    }
+
+    // Удаляем из комнаты
+    if (this.rooms.has(roomId)) {
+      this.rooms.get(roomId)!.delete(ws);
+
+      if (this.rooms.get(roomId)!.size === 0) {
+        this.rooms.delete(roomId);
+      }
     }
   }
 
   private broadcastToRoom(roomId: string, payload: object) {
+
+    if (!roomId) {
+      throw new AppStatus(500, "Не передан roomId")
+    };
+
     const clients = this.rooms.get(roomId);
-    if (!clients) return;
+    if (!clients) {
+      throw new AppStatus(500, "Нет клиентов")
+    };
 
     const msg = JSON.stringify(payload);
     clients.forEach((client) => {

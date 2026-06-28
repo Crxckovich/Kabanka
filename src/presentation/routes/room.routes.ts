@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authMiddleware } from "@/presentation/middleware/auth.middleware.ts";
+import {authMiddleware, optionalAuth, requiredAuth} from "@/presentation/middleware/auth.middleware.ts";
 import { asyncMiddleware } from "@/presentation/middleware/async.middleware.ts";
 import roomController from "../controllers/room.controller";
 
@@ -7,38 +7,37 @@ export const roomRouter = Router();
 
 // ВБ - значит метод есть еще и вебсокете
 // Комнаты
-roomRouter.post("/", authMiddleware, asyncMiddleware(roomController.create)); // Создать комнату постоянная/гостевая
+roomRouter.post("/", optionalAuth, asyncMiddleware(roomController.create)); // Создать комнату постоянная/гостевая
 
-roomRouter.get("/", authMiddleware, asyncMiddleware(roomController.getUserRooms)); // Получить комнаты авторизованного пользователя
-roomRouter.get("/:roomId", authMiddleware, asyncMiddleware(roomController.getRoomById)); // Получить комнату + статусы + задачи
-roomRouter.patch("/:roomId", authMiddleware, asyncMiddleware(roomController.update)); // ВБ Обновить название, настройки и т.д.
-roomRouter.delete("/:roomId", authMiddleware, asyncMiddleware(roomController.remove)); // ВБ Удалить комнату
+roomRouter.get("/", requiredAuth, asyncMiddleware(roomController.getUserRooms)); // Получить комнаты авторизованного пользователя
+roomRouter.patch("/:roomId", asyncMiddleware(roomController.update)); // ВБ Обновить название, настройки и т.д.
+roomRouter.delete("/:roomId", optionalAuth, asyncMiddleware(roomController.remove)); // ВБ Удалить комнату
+
+
+// roomRouter.get("/:roomId", authMiddleware, asyncMiddleware(roomController.getRoomById)); // Получить комнату + статусы + задачи
 
 // Присоединение
 roomRouter.post("/join/:invite-code", asyncMiddleware(roomController.joinByCode)); // ВБ Присоединиться по invite коду
 roomRouter.post("/:roomId/join", asyncMiddleware(roomController.joinById)); // ВБ Присоединиться по ID
 
 // Участники комнаты
-roomRouter.get("/:roomId/members", authMiddleware, asyncMiddleware(roomController.getMembers));
+roomRouter.get("/:roomId/members", asyncMiddleware(roomController.getMembers));
 roomRouter.delete(
   "/:roomId/members/:memberId",
-  authMiddleware,
   asyncMiddleware(roomController.removeMember)
 ); // ВБ Кикнуть из комнаты
-roomRouter.post("/:roomId/leave", authMiddleware, asyncMiddleware(roomController.leave)); // ВБ Выйти из комнаты
+roomRouter.post("/:roomId/leave", optionalAuth, asyncMiddleware(roomController.leave)); // ВБ Выйти из комнаты
 
 // Права участника ВБ
 roomRouter.patch(
   "/:roomId/members/:memberId/permissions",
-  authMiddleware,
   asyncMiddleware(roomController.updateMemberPermissions)
 );
 
 // Публичный доступ
-roomRouter.patch("/:roomId/public", authMiddleware, asyncMiddleware(roomController.togglePublic)); // ВБ Вкл/выкл публичный доступ
-roomRouter.post(
-  "/:roomId/invite-code",
-  authMiddleware,
+roomRouter.patch("/:roomId/public", asyncMiddleware(roomController.togglePublic)); // ВБ Вкл/выкл публичный доступ
+roomRouter.get(
+  "/:roomId/invite-code", optionalAuth,
   asyncMiddleware(roomController.resetInviteCode)
 ); // Сброс кода
 

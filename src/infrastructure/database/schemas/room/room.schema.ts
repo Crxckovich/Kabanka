@@ -1,5 +1,7 @@
 import { pgTable, uuid, varchar, timestamp, boolean, integer } from "drizzle-orm/pg-core";
-import { usersSchema } from "@/infrastructure";
+import { usersSchema } from "../user/user.schema.ts";
+import {relations} from "drizzle-orm";
+import {roomMembersSchema, statusesSchema, tasksSchema} from "@/infrastructure/database/schemas";
 
 export const roomsSchema = pgTable("rooms", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -14,3 +16,9 @@ export const roomsSchema = pgTable("rooms", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const roomsRelations = relations(roomsSchema, ({ many }) => ({
+  members: many(roomMembersSchema),
+  statuses: many(statusesSchema),
+  tasks: many(tasksSchema),
+}));

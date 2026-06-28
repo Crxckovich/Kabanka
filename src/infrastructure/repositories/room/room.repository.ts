@@ -22,8 +22,14 @@ export class RoomRepository {
     const room = await db.query.roomsSchema.findFirst({
       where: eq(roomsSchema.id, id),
       with: {
-        members: true,
-        statuses: { orderBy: asc(statusesSchema.order) },
+        members: {
+          with: {
+            permissions: true,
+          },
+        },
+        statuses: {
+          orderBy: asc(statusesSchema.order)
+        },
         tasks: true,
       },
     });
@@ -57,7 +63,7 @@ export class RoomRepository {
 
   async getUserRooms(userId: number) {
     return db.query.roomsSchema.findMany({
-      where: eq(roomsSchema.ownerId, userId),
+      where: and(eq(roomsSchema.ownerId, userId)),
       orderBy: desc(roomsSchema.createdAt),
       with: { members: true },
     });
